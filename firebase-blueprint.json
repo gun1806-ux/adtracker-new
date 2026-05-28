@@ -1,0 +1,43 @@
+{
+  "entities": {
+    "Link": {
+      "title": "Link",
+      "description": "Ad tracker short link schema",
+      "type": "object",
+      "properties": {
+        "trackingId": { "type": "string" },
+        "userId": { "type": "string" },
+        "originalUrl": { "type": "string" },
+        "channel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trackingId", "userId", "originalUrl", "channel"]
+    },
+    "Click": {
+      "title": "Click",
+      "description": "Individual click or visit redirect logs",
+      "type": "object",
+      "properties": {
+        "trackingId": { "type": "string" },
+        "linkOwnerId": { "type": "string" },
+        "channel": { "type": "string" },
+        "originalUrl": { "type": "string" },
+        "deviceType": { "type": "string", "enum": ["Mobile", "PC"] },
+        "referrer": { "type": "string" },
+        "userAgent": { "type": "string" },
+        "clickedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trackingId", "linkOwnerId", "channel", "originalUrl", "deviceType", "referrer", "userAgent"]
+    }
+  },
+  "firestore": {
+    "/links/{linkId}": {
+      "schema": "Link",
+      "description": "Collections of generated tracking links"
+    },
+    "/clicks/{clickId}": {
+      "schema": "Click",
+      "description": "Collection of recorded redirect clicks"
+    }
+  }
+}

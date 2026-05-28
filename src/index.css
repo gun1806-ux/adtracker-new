@@ -1,0 +1,22 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #0A0A0B;
+  color: #f1f5f9;
+}
+
+/* Polished loader micro-animations */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-fast {
+  animation: spin 0.6s linear infinite;
+}

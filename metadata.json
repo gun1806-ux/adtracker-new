@@ -1,0 +1,6 @@
+{
+  "name": "Ad Tracker",
+  "description": "A simple and powerful advertisement channel and device tracking analytics service.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

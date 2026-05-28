@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Checking if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Checking if requested user matches current auth user
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Links rules
+    match /links/{linkId} {
+      allow read, list: if true;
+      allow create: if isSignedIn() 
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.trackingId is string
+                    && request.resource.data.originalUrl is string
+                    && request.resource.data.channel is string;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Clicks rules: append-only for redirections (with deletion support for owners)
+    match /clicks/{clickId} {
+      allow read, list: if isSignedIn() && resource.data.linkOwnerId == request.auth.uid;
+      allow create: if request.resource.data.trackingId is string
+                    && request.resource.data.linkOwnerId is string
+                    && request.resource.data.originalUrl is string
+                    && request.resource.data.deviceType in ['Mobile', 'PC']
+                    && request.resource.data.channel is string;
+      allow update: if false;
+      allow delete: if isSignedIn() && resource.data.linkOwnerId == request.auth.uid;
+    }
+
+    // User registrations rules - allow read, write for user activation and real-time admin controls
+    match /user_registrations/{userId} {
+      allow read, write: if true;
+    }
+  }
+}
