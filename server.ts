@@ -31,7 +31,23 @@ async function startServer() {
 
     if (!firebaseConfig || !firebaseConfig.projectId) {
       // Graceful fallback to client-side router if config is missing
-      return res.redirect(302, `/#/r/${trackingId}`);
+      const fallbackUrl = `/#/r/${trackingId}`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="referrer" content="no-referrer">
+          <meta http-equiv="refresh" content="0; url=${fallbackUrl}">
+        </head>
+        <body>
+          <script>
+            window.location.replace("${fallbackUrl}");
+          </script>
+        </body>
+        </html>
+      `);
     }
 
     const projectId = firebaseConfig.projectId;
@@ -94,12 +110,80 @@ async function startServer() {
         console.warn("Silent server REST telemetry logs error:", traceErr);
       });
 
-      // Execute instant 302 redirection (Standard HTTP Redirect)
-      return res.redirect(302, destination);
+      // Execute anti-captcha HTML Client-Side instant redirect with no-referrer
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta http-equiv="X-UA-Compatible" content="IE=edge">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta name="referrer" content="no-referrer">
+          <title>연결 중...</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              height: 100vh;
+              margin: 0;
+              background-color: #f9fafb;
+              color: #4b5563;
+            }
+            .loader-container {
+              text-align: center;
+            }
+            .spinner {
+              width: 40px;
+              height: 40px;
+              border: 3px solid #e5e7eb;
+              border-top: 3px solid #10b981;
+              border-radius: 50%;
+              animation: spin 0.8s linear infinite;
+              margin: 0 auto 16px;
+            }
+            @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+          </style>
+          <meta http-equiv="refresh" content="0; url=${destination}">
+        </head>
+        <body>
+          <div class="loader-container">
+            <div class="spinner"></div>
+            <div>안전하게 원본 페이지로 이동하고 있습니다. 잠시만 기다려 주세요...</div>
+          </div>
+          <script>
+            setTimeout(function() {
+              window.location.replace("${destination}");
+            }, 50);
+          </script>
+        </body>
+        </html>
+      `);
     } catch (redirectErr) {
       console.error("Direct server REST redirect failed for tracing session:", redirectErr);
       // Dual-redundant fallback to client-side router if anything fails on server-side database fetch
-      return res.redirect(302, `/#/r/${trackingId}`);
+      const fallbackUrl = `/#/r/${trackingId}`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="referrer" content="no-referrer">
+          <meta http-equiv="refresh" content="0; url=${fallbackUrl}">
+        </head>
+        <body>
+          <script>
+            window.location.replace("${fallbackUrl}");
+          </script>
+        </body>
+        </html>
+      `);
     }
   });
 

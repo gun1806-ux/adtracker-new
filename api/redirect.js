@@ -35,8 +35,23 @@ export default async function handler(req, res) {
 
   if (!firebaseConfig || !firebaseConfig.projectId) {
     // Redundant routing fallback to client-side react app if secrets initialization is pending
-    res.writeHead(302, { Location: `/#/r/${trackingId}` });
-    res.end();
+    const fallbackUrl = `/#/r/${trackingId}`;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="referrer" content="no-referrer">
+        <meta http-equiv="refresh" content="0; url=${fallbackUrl}">
+      </head>
+      <body>
+        <script>
+          window.location.replace("${fallbackUrl}");
+        </script>
+      </body>
+      </html>
+    `);
     return;
   }
 
@@ -104,13 +119,79 @@ export default async function handler(req, res) {
       console.warn("Silent server REST function telemetry logging warning:", traceErr);
     });
 
-    // Execute instant HTTP Redirect!
-    res.writeHead(302, { Location: destination });
-    res.end();
+    // Execute anti-captcha HTML Client-Side instant redirect with no-referrer
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="referrer" content="no-referrer">
+        <title>연결 중...</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f9fafb;
+            color: #4b5563;
+          }
+          .loader-container {
+            text-align: center;
+          }
+          .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid #10b981;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+        <meta http-equiv="refresh" content="0; url=${destination}">
+      </head>
+      <body>
+        <div class="loader-container">
+          <div class="spinner"></div>
+          <div>안전하게 원본 페이지로 이동하고 있습니다. 잠시만 기다려 주세요...</div>
+        </div>
+        <script>
+          setTimeout(function() {
+            window.location.replace("${destination}");
+          }, 50);
+        </script>
+      </body>
+      </html>
+    `);
   } catch (err) {
     console.error("Vercel Serverless Function routing crash. Triggering React fallback:", err);
-    // Double-redundant failover to SPA router on client browser
-    res.writeHead(302, { Location: `/#/r/${trackingId}` });
-    res.end();
+    // Double-redundant failover to SPA router on client browser using the same clean HTML flow
+    const fallbackUrl = `/#/r/${trackingId}`;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="referrer" content="no-referrer">
+        <meta http-equiv="refresh" content="0; url=${fallbackUrl}">
+      </head>
+      <body>
+        <script>
+          window.location.replace("${fallbackUrl}");
+        </script>
+      </body>
+      </html>
+    `);
   }
 }
