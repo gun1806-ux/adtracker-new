@@ -36,7 +36,7 @@ async function startServer() {
 
     const projectId = firebaseConfig.projectId;
     const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/links/${trackingId}`;
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/links/${trackingId}?key=${firebaseConfig.apiKey}`;
 
     try {
       const response = await fetch(firestoreUrl);
@@ -72,7 +72,7 @@ async function startServer() {
       const referrer = req.headers['referer'] || '직접 유입/웹';
 
       // Log click metrics using Firestore REST API (Async / Fire-and-forget style)
-      const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks`;
+      const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks?key=${firebaseConfig.apiKey}`;
       const clickPayload = {
         fields: {
           trackingId: { stringValue: trackingId },
@@ -86,13 +86,15 @@ async function startServer() {
         }
       };
 
-      fetch(writeUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(clickPayload)
-      }).catch((traceErr) => {
+      try {
+        await fetch(writeUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(clickPayload)
+        });
+      } catch (traceErr) {
         console.warn("Silent server REST telemetry logs error:", traceErr);
-      });
+      }
 
       // Render an ultra-clean blank HTML and use virtual anchor click emulation
       // This bypasses Naver's automated bot/macro detection (spam CAPTCHA) by pretending the user directly clicked a link in browser

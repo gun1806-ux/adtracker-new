@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import firebaseConfig from './firebase-config-local.js';
 
 export default async function handler(req, res) {
   // Disable aggressive Vercel server caching so link metrics track reliably every time
@@ -22,17 +23,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Load Firestore Secrets natively from Workspace Environment Config
-  let firebaseConfig = null;
-  try {
-    const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-    if (fs.existsSync(configPath)) {
-      firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    }
-  } catch (err) {
-    console.error('Failed to parse Firebase configuration on Vercel instance startup:', err);
-  }
-
   if (!firebaseConfig || !firebaseConfig.projectId) {
     // Redundant routing fallback to client-side react app if secrets initialization is pending
     res.writeHead(302, { Location: `/#/r/${trackingId}` });
@@ -42,7 +32,7 @@ export default async function handler(req, res) {
 
   const projectId = firebaseConfig.projectId;
   const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
-  const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/links/${trackingId}`;
+  const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/links/${trackingId}?key=${firebaseConfig.apiKey}`;
 
   try {
     const response = await fetch(firestoreUrl);
@@ -82,7 +72,7 @@ export default async function handler(req, res) {
     const referrer = req.headers['referer'] || '직접 유입/웹';
 
     // Register click logs using high-speed fire-and-forget raw API calls
-    const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks`;
+    const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks?key=${firebaseConfig.apiKey}`;
     const clickPayload = {
       fields: {
         trackingId: { stringValue: trackingId },
@@ -96,13 +86,16 @@ export default async function handler(req, res) {
       }
     };
 
-    fetch(writeUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(clickPayload)
-    }).catch((traceErr) => {
+    // Await database write to prevent serverless function termination from killing telemetry
+    try {
+      await fetch(writeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clickPayload)
+      });
+    } catch (traceErr) {
       console.warn("Silent server REST function telemetry logging warning:", traceErr);
-    });
+    }
 
     // Render an ultra-clean blank HTML and use virtual anchor click emulation
     // This bypasses Naver's automated bot/macro detection (spam CAPTCHA) by pretending the user directly clicked a link in browser
