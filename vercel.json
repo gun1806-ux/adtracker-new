@@ -1,6 +1,6 @@
 {
-  "cleanUrls": true,
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/r/:id", "destination": "/index.html" },
+    { "source": "/((?!assets/|favicon.ico).*)", "destination": "/index.html" }
   ]
 }
