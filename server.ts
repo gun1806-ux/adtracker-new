@@ -1,52 +1,65 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  let db: any = null;
-
+  // Read Firebase configuration once on startup
+  let firebaseConfig: any = null;
   try {
     const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(configPath)) {
-      const firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-
-      const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-      db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-      console.log('Firebase initialized successfully on server-side natively as ES Module.');
+      firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      console.log('Firebase configuration loaded on server-side successfully for REST API direct routing.');
     } else {
       console.warn('Firebase configuration file not found at:', configPath);
     }
   } catch (err) {
-    console.error('Failed to initialize Firebase on server-side:', err);
+    console.error('Failed to load Firebase config on server-side startup:', err);
   }
 
   // 1. Direct Server-Side Redirector Endpoint
   // Bypasses React frontend load sequences entirely for instant redirects and secure logging.
+  // Switched to lightweight REST API to prevent browser-model gRPC/WS handshake delays (0.1s instead of 3s)
   app.get('/r/:trackingId', async (req, res) => {
     const trackingId = req.params.trackingId.trim();
     if (!trackingId) {
       return res.status(400).send('코드가 유효하지 않습니다.');
     }
 
-    if (!db) {
-      // Graceful fallback to client-side router if server db initialization is pending
+    if (!firebaseConfig || !firebaseConfig.projectId) {
+      // Graceful fallback to client-side router if config is missing
       return res.redirect(302, `/#/r/${trackingId}`);
     }
 
-    try {
-      const linkDocRef = doc(db, 'links', trackingId);
-      const linkDocSnap = await getDoc(linkDocRef);
+    const projectId = firebaseConfig.projectId;
+    const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/links/${trackingId}`;
 
-      if (!linkDocSnap.exists()) {
-        return res.status(404).send('존재하지 않거나 이미 만료된 광고 추적 링크입니다.');
+    try {
+      const response = await fetch(firestoreUrl);
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(404).send('존재하지 않거나 이미 만료된 광고 추적 링크입니다.');
+        }
+        throw new Error(`Firestore REST API returned status ${response.status}`);
       }
 
-      const linkData = linkDocSnap.data();
+      const data: any = await response.json();
+      const fields = data.fields || {};
+
+      const linkData = {
+        originalUrl: fields.originalUrl?.stringValue || '',
+        userId: fields.userId?.stringValue || '',
+        channel: fields.channel?.stringValue || '연구/기타'
+      };
+
+      if (!linkData.originalUrl) {
+        return res.status(404).send('원본 링크 정보가 비어 있는 비정상적인 추적 링크입니다.');
+      }
+
       let destination = linkData.originalUrl.trim();
       if (!/^https?:\/\//i.test(destination)) {
         destination = 'https://' + destination;
@@ -58,26 +71,35 @@ async function startServer() {
       const deviceType = isMobile ? 'Mobile' : 'PC';
       const referrer = req.headers['referer'] || '직접 유입/웹';
 
-      // Safe fire-and-forget back-end tracing click log registration
-      addDoc(collection(db, 'clicks'), {
-        trackingId,
-        linkOwnerId: linkData.userId || '',
-        channel: linkData.channel || '연구/기타',
-        originalUrl: linkData.originalUrl,
-        deviceType,
-        referrer,
-        userAgent,
-        clickedAt: serverTimestamp()
+      // Log click metrics using Firestore REST API (Async / Fire-and-forget style)
+      const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks`;
+      const clickPayload = {
+        fields: {
+          trackingId: { stringValue: trackingId },
+          linkOwnerId: { stringValue: linkData.userId },
+          channel: { stringValue: linkData.channel },
+          originalUrl: { stringValue: linkData.originalUrl },
+          deviceType: { stringValue: deviceType },
+          referrer: { stringValue: referrer },
+          userAgent: { stringValue: userAgent },
+          clickedAt: { timestampValue: new Date().toISOString() }
+        }
+      };
+
+      fetch(writeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clickPayload)
       }).catch((traceErr) => {
-        console.warn("Silent server telemetry logs error:", traceErr);
+        console.warn("Silent server REST telemetry logs error:", traceErr);
       });
 
       // Execute instant 302 redirection (Standard HTTP Redirect)
-      res.redirect(302, destination);
+      return res.redirect(302, destination);
     } catch (redirectErr) {
-      console.error("Direct server redirect failed for tracing session:", redirectErr);
+      console.error("Direct server REST redirect failed for tracing session:", redirectErr);
       // Dual-redundant fallback to client-side router if anything fails on server-side database fetch
-      res.redirect(302, `/#/r/${trackingId}`);
+      return res.redirect(302, `/#/r/${trackingId}`);
     }
   });
 
