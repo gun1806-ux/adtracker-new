@@ -35,23 +35,8 @@ export default async function handler(req, res) {
 
   if (!firebaseConfig || !firebaseConfig.projectId) {
     // Redundant routing fallback to client-side react app if secrets initialization is pending
-    const fallbackUrl = `/#/r/${trackingId}`;
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="referrer" content="no-referrer">
-        <meta http-equiv="refresh" content="0; url=${fallbackUrl}">
-      </head>
-      <body>
-        <script>
-          window.location.replace("${fallbackUrl}");
-        </script>
-      </body>
-      </html>
-    `);
+    res.writeHead(302, { Location: `/#/r/${trackingId}` });
+    res.end();
     return;
   }
 
@@ -119,56 +104,42 @@ export default async function handler(req, res) {
       console.warn("Silent server REST function telemetry logging warning:", traceErr);
     });
 
-    // Execute anti-captcha HTML Client-Side instant redirect with no-referrer
+    // Render an ultra-clean blank HTML and use virtual anchor click emulation
+    // This bypasses Naver's automated bot/macro detection (spam CAPTCHA) by pretending the user directly clicked a link in browser
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta name="referrer" content="no-referrer">
-        <title>연결 중...</title>
+        <title>Loading</title>
         <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
+          html, body {
             margin: 0;
-            background-color: #f9fafb;
-            color: #4b5563;
-          }
-          .loader-container {
-            text-align: center;
-          }
-          .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid #e5e7eb;
-            border-top: 3px solid #10b981;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin: 0 auto 16px;
-          }
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            padding: 0;
+            background-color: #ffffff;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
           }
         </style>
-        <meta http-equiv="refresh" content="0; url=${destination}">
       </head>
       <body>
-        <div class="loader-container">
-          <div class="spinner"></div>
-          <div>안전하게 원본 페이지로 이동하고 있습니다. 잠시만 기다려 주세요...</div>
-        </div>
         <script>
-          setTimeout(function() {
-            window.location.replace("${destination}");
-          }, 50);
+          (function() {
+            var dest = "${destination}";
+            try {
+              var a = document.createElement('a');
+              a.href = dest;
+              document.body.appendChild(a);
+              a.click();
+            } catch(e) {
+              window.location.replace(dest);
+            }
+            setTimeout(function() {
+              window.location.replace(dest);
+            }, 20);
+          })();
         </script>
       </body>
       </html>
@@ -183,8 +154,13 @@ export default async function handler(req, res) {
       <html>
       <head>
         <meta charset="utf-8">
-        <meta name="referrer" content="no-referrer">
-        <meta http-equiv="refresh" content="0; url=${fallbackUrl}">
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+          }
+        </style>
       </head>
       <body>
         <script>
