@@ -2,6 +2,34 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 
+function isBotOrPrefetch(headers: any): boolean {
+  const userAgent = (headers['user-agent'] || '') as string;
+  const purpose = (headers['purpose'] || headers['x-purpose'] || headers['sec-purpose'] || headers['x-moz'] || '') as string;
+  
+  // 1. Check background speculative prefetch / preview headers
+  if (/prefetch|preview/i.test(purpose)) {
+    return true;
+  }
+  
+  // 2. Check automated bot / crawler / link preview scraper keywords
+  // (We exclude plain "naver" or "kakaotalk" to allow real in-app mobile browsers)
+  const botKeywords = [
+    'bot', 'crawler', 'spider', 'scrap', 'crawl', 'lighthouse', 'headless', 
+    'facebookexternalhit', 'facebot', 'slackbot', 'telegram', 'discord', 'whatsapp', 
+    'twitterbot', 'linkedinbot', 'embedly', 'mediapartners', 'adsbot', 'ping',
+    'google-webrender', 'vkshare', 'w3c_validator', 'baiduspider', 'yeti', 
+    'python-requests', 'axios', 'curl', 'wget', 'http-client',
+    'preview', 'embed', 'fetcher', 'link-analyzer', 'url-resolver',
+    'karrot', 'daangn', 'dangn', 'carrot', 'robot', 'inspection', 'audit', 'ad-review', 
+    'validator', 'monitor', 'probe', 'scoot', 'pingdom', 'uptimerobot', 'synapse', 
+    'check', 'url', 'verify', 'screenshot', 'headlesschrome', 'selenium', 'puppeteer', 
+    'playwright', 'electron'
+  ];
+  
+  const uaLower = userAgent.toLowerCase();
+  return botKeywords.some(keyword => uaLower.includes(keyword));
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -20,7 +48,50 @@ async function startServer() {
     console.error('Failed to load Firebase config on server-side startup:', err);
   }
 
-  // 1. Direct Server-Side Redirector Endpoint
+  // 1. Direct Server-Side Click Logging Endpoint (Called asynchronously from browser JS)
+  app.post('/r/:trackingId', express.json(), async (req, res) => {
+    const trackingId = req.params.trackingId.trim();
+    if (!trackingId) {
+      return res.status(400).json({ error: 'Invalid tracking ID' });
+    }
+
+    if (!firebaseConfig || !firebaseConfig.projectId) {
+      return res.status(500).json({ error: 'Firebase config missing' });
+    }
+
+    try {
+      const { linkOwnerId, channel, originalUrl, deviceType, referrer, userAgent } = req.body;
+      const projectId = firebaseConfig.projectId;
+      const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+      const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks?key=${firebaseConfig.apiKey}`;
+
+      const clickPayload = {
+        fields: {
+          trackingId: { stringValue: trackingId },
+          linkOwnerId: { stringValue: linkOwnerId || '' },
+          channel: { stringValue: channel || '연구/기타' },
+          originalUrl: { stringValue: originalUrl || '' },
+          deviceType: { stringValue: deviceType || 'PC' },
+          referrer: { stringValue: referrer || '직접 유입/웹' },
+          userAgent: { stringValue: userAgent || '' },
+          clickedAt: { timestampValue: new Date().toISOString() }
+        }
+      };
+
+      await fetch(writeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clickPayload)
+      });
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("Local/Express Serverless background click log write error:", err);
+      return res.status(500).json({ error: 'Failed to write click log' });
+    }
+  });
+
+  // 2. Direct Server-Side Redirector Endpoint
   // Bypasses React frontend load sequences entirely for instant redirects and secure logging.
   // Switched to lightweight REST API to prevent browser-model gRPC/WS handshake delays (0.1s instead of 3s)
   app.get('/r/:trackingId', async (req, res) => {
@@ -65,39 +136,16 @@ async function startServer() {
         destination = 'https://' + destination;
       }
 
-      // Analyze Client agent metadata
-      const userAgent = req.headers['user-agent'] || '';
-      const isMobile = /Mobile|Android|iP(hone|od|ad)/i.test(userAgent);
-      const deviceType = isMobile ? 'Mobile' : 'PC';
-      const referrer = req.headers['referer'] || '직접 유입/웹';
-
-      // Log click metrics using Firestore REST API (Async / Fire-and-forget style)
-      const writeUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/clicks?key=${firebaseConfig.apiKey}`;
-      const clickPayload = {
-        fields: {
-          trackingId: { stringValue: trackingId },
-          linkOwnerId: { stringValue: linkData.userId },
-          channel: { stringValue: linkData.channel },
-          originalUrl: { stringValue: linkData.originalUrl },
-          deviceType: { stringValue: deviceType },
-          referrer: { stringValue: referrer },
-          userAgent: { stringValue: userAgent },
-          clickedAt: { timestampValue: new Date().toISOString() }
-        }
-      };
-
-      try {
-        await fetch(writeUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(clickPayload)
-        });
-      } catch (traceErr) {
-        console.warn("Silent server REST telemetry logs error:", traceErr);
+      // 1st Line defense: If it's a known robot/crawler header, redirect them instantly via HTTP 302 directly
+      // This bypasses the JS intermediate screen and records absolutely NO click log inside Firebase.
+      if (isBotOrPrefetch(req.headers)) {
+        console.log(`[Express/r] Redirected bot/crawler via direct HTTP 302. User-Agent: ${req.headers['user-agent']}`);
+        return res.redirect(302, destination);
       }
 
-      // Render an ultra-clean blank HTML and use virtual anchor click emulation
-      // This bypasses Naver's automated bot/macro detection (spam CAPTCHA) by pretending the user directly clicked a link in browser
+      // Render an ultra-clean blank HTML with safe client-side logging + immediate redirection
+      // Static link checker bots will query this page, see 200 OK, but will never run the JS logic
+      // real human browsers run the JS block, register the click in background (via same-origin POST), and proceed
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(200).send(`
         <!DOCTYPE html>
@@ -120,6 +168,33 @@ async function startServer() {
           <script>
             (function() {
               var dest = "${destination}";
+              var trackingId = "${trackingId}";
+              var isBot = navigator.webdriver || /headless|bot|crawler|spider|lighthouse|scrap|crawler/i.test(navigator.userAgent);
+              
+              if (!isBot) {
+                var isMobile = /Mobile|Android|iP(hone|od|ad)/i.test(navigator.userAgent);
+                var referrer = document.referrer || '직접 유입/웹';
+
+                // Submit POST request to same URL to trigger click log write asynchronously with keepalive
+                fetch(window.location.pathname, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    trackingId: trackingId,
+                    linkOwnerId: "${linkData.userId}",
+                    channel: "${linkData.channel}",
+                    originalUrl: "${linkData.originalUrl}",
+                    deviceType: isMobile ? 'Mobile' : 'PC',
+                    referrer: referrer,
+                    userAgent: navigator.userAgent
+                  }),
+                  keepalive: true
+                }).catch(function(e) {
+                  console.warn("Logged silent telemetry click trace fallback warning:", e);
+                });
+              }
+
+              // Immediately proceed to redirect the browser to the original destination
               try {
                 var a = document.createElement('a');
                 a.href = dest;
@@ -130,7 +205,7 @@ async function startServer() {
               }
               setTimeout(function() {
                 window.location.replace(dest);
-              }, 20);
+              }, 10);
             })();
           </script>
         </body>

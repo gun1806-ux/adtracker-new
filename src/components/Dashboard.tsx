@@ -21,7 +21,8 @@ import {
   Sparkles,
   RefreshCw,
   Search,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -38,6 +39,8 @@ interface DashboardProps {
 export default function Dashboard({ user }: DashboardProps) {
   const [links, setLinks] = useState<LinkEntity[]>([]);
   const [clicks, setClicks] = useState<ClickEntity[]>([]);
+  const [linksLoaded, setLinksLoaded] = useState(false);
+  const [clicksLoaded, setClicksLoaded] = useState(false);
   const [url, setUrl] = useState('');
   const [channel, setChannel] = useState('인스타그램');
   const [customChannel, setCustomChannel] = useState('');
@@ -152,8 +155,10 @@ export default function Dashboard({ user }: DashboardProps) {
       });
 
       setLinks(data);
+      setLinksLoaded(true);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'links');
+      setLinksLoaded(true); // Prevent lockup
     });
 
     // 2. Subscribe to Clicks for analytics
@@ -168,8 +173,10 @@ export default function Dashboard({ user }: DashboardProps) {
         ...doc.data()
       })) as ClickEntity[];
       setClicks(data);
+      setClicksLoaded(true);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'clicks');
+      setClicksLoaded(true); // Prevent lockup
     });
 
     return () => {
@@ -483,6 +490,37 @@ export default function Dashboard({ user }: DashboardProps) {
       pcPercent
     };
   }, [filteredClicksByTag]);
+
+  const loadingData = !linksLoaded || !clicksLoaded;
+
+  if (loadingData) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0B] text-slate-200 relative font-sans leading-normal">
+        <header className="bg-[#111113]/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-800 shadow-xs">
+          <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black shadow-md shadow-blue-500/10">
+                <Link2 className="w-4.5 h-4.5 rotate-45" />
+              </span>
+              <div>
+                <h1 className="text-base font-bold text-white leading-none">AdTracker <span className="text-blue-500 text-xs uppercase tracking-widest font-black">PRO</span></h1>
+                <p className="text-[10px] text-slate-400 font-medium">광고 성과 측정 대시보드</p>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-6xl mx-auto px-4 mt-16 flex flex-col items-center justify-center py-24 text-center">
+          <div className="bg-[#161618] p-10 rounded-2xl border border-slate-800 shadow-2xl max-w-sm w-full flex flex-col items-center justify-center">
+            <Loader2 className="w-9 h-9 text-blue-500 animate-spin mb-4" />
+            <h2 className="text-sm font-bold text-slate-300 mb-1.5">실시간 통계 데이터 라이브 동기화</h2>
+            <p className="text-xs text-slate-500 max-w-xs font-semibold leading-relaxed">
+              안전한 Firestore 클라우드 채널을 통해 광고 링크 및 유입 통계 성과 지표 데이터를 실시간으로 동기화하고 있습니다...
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0A0B] text-slate-200 relative font-sans leading-normal pb-20">

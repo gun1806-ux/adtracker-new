@@ -76,19 +76,63 @@ export default function RedirectHandler({ trackingId }: RedirectHandlerProps) {
         const userAgent = navigator.userAgent;
         const isMobile = /Mobile|Android|iP(hone|od|ad)/i.test(userAgent);
 
-        // 3. Register click metrics into 'clicks' logs in background (Fire-and-forget safely)
-        addDoc(collection(db, 'clicks'), {
-          trackingId: cleanId,
-          linkOwnerId: linkData.userId || '', 
-          channel: linkData.channel || '연구/기타',
-          originalUrl: linkData.originalUrl,
-          deviceType: isMobile ? 'Mobile' : 'PC',
-          referrer: document.referrer || '직접 유입/웹',
-          userAgent: userAgent,
-          clickedAt: serverTimestamp()
-        }).catch((clickErr) => {
-          console.warn("Logged silent telemetry click trace fallback:", clickErr);
-        });
+        // Detect bots, crawlers, or scrapers running JS (excluding real Daangn/Karrot app in-app browsers, but filtering actual crawlers/auditors)
+        const botKeywords = [
+          'bot', 'crawler', 'spider', 'scrap', 'crawl', 'lighthouse', 'headless', 
+          'facebookexternalhit', 'facebot', 'slackbot', 'telegram', 'discord', 'whatsapp', 
+          'twitterbot', 'linkedinbot', 'embedly', 'mediapartners', 'adsbot', 'ping',
+          'google-webrender', 'vkshare', 'w3c_validator', 'baiduspider', 'yeti', 
+          'python-requests', 'axios', 'curl', 'wget', 'http-client',
+          'preview', 'embed', 'fetcher', 'link-analyzer', 'url-resolver',
+          'daangnbot', 'karrotbot', 'dangnbot', 'carrotbot', 
+          'robot', 'inspection', 'audit', 
+          'ad-review', 'validator', 'monitor', 'probe', 'scoot', 'pingdom', 
+          'uptimerobot', 'synapse', 'check', 'url', 'verify', 'screenshot', 
+          'headlesschrome', 'selenium', 'puppeteer', 'playwright', 'electron'
+        ];
+        const uaLower = userAgent.toLowerCase();
+        const isBot = botKeywords.some(keyword => uaLower.includes(keyword));
+
+        // 2.5 Deduplicate rapid clicks/history navigation (e.g., within 5 minutes on the same device)
+        const clickKey = `adtracker_clicked_${cleanId}`;
+        const lastClickTimeStr = localStorage.getItem(clickKey);
+        const nowMs = Date.now();
+        let isDuplicateClick = false;
+
+        if (lastClickTimeStr) {
+          const lastClickTime = parseInt(lastClickTimeStr, 10);
+          if (!isNaN(lastClickTime) && (nowMs - lastClickTime) < 5 * 60 * 1000) {
+            isDuplicateClick = true;
+          }
+        }
+
+        // 3. Register click metrics into 'clicks' logs only if it's a real human visitor & not a short-term duplicate
+        if (!isBot && !isDuplicateClick) {
+          try {
+            localStorage.setItem(clickKey, String(nowMs));
+          } catch (storageErr) {
+            console.warn("Storage write failure in RedirectHandler:", storageErr);
+          }
+          
+          addDoc(collection(db, 'clicks'), {
+            trackingId: cleanId,
+            linkOwnerId: linkData.userId || '', 
+            channel: linkData.channel || '연구/기타',
+            originalUrl: linkData.originalUrl,
+            deviceType: isMobile ? 'Mobile' : 'PC',
+            referrer: document.referrer || '직접 유입/웹',
+            userAgent: userAgent,
+            clickedAt: serverTimestamp()
+          }).catch((clickErr) => {
+            console.warn("Logged silent telemetry click trace fallback:", clickErr);
+          });
+        } else {
+          if (isBot) {
+            console.log("Client-side redirect handler bypassed bot click log:", userAgent);
+          } else {
+            console.log("Client-side redirect bypassed duplicate fast click log to maintain accurate Carrot Ad alignment. ID:", cleanId);
+          }
+        }
 
         // 4. Trigger target redirect
         let destination = linkData.originalUrl.trim();
